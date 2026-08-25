@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>全家條碼極速掃描器</title>
-    <!-- 引入高效能的 ZXing 瀏覽器端完整解碼庫 -->
     <script type="text/javascript" src="https://unpkg.com/@zxing/library@latest"></script>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; margin: 0; padding: 16px; color: #f8fafc; }
@@ -16,7 +15,6 @@
         @keyframes scan { 0%, 100% { top: 20%; } 50% { top: 80%; } }
         .btn { width: 100%; padding: 14px; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; font-size: 1rem; margin-top: 12px; transition: background 0.2s; }
         .btn-start { background: #f97316; color: white; }
-        .btn-start:hover { background: #ea580c; }
         .btn-stop { background: #ef4444; color: white; display: none; }
         .result-box { margin-top: 15px; padding: 14px; background: #0f172a; border: 1px solid #334155; border-radius: 10px; font-size: 0.95rem; word-break: break-all; }
         .success-text { color: #4ade80; font-weight: bold; font-size: 1.1rem; }
@@ -27,14 +25,13 @@
 <div class="container">
     <h2>🧡 專用一維條碼極速掃描</h2>
     
-    <!-- 視訊預覽與紅色掃描線特效 -->
     <div class="video-container">
         <video id="video" muted playsinline></video>
         <div class="scan-line"></div>
     </div>
 
     <button class="btn btn-start" id="startBtn" onclick="startScanner()">▶ 啟動極速掃描</button>
-    <button class="btn btn-stop" id="stopBtn" onclick="stopScanner()">⏹ 關閉相機</button>
+    <button class="btn btn-stop" id="stopBtn" onclick="stopScanner()">⏹ 關閉鏡頭</button>
 
     <div class="result-box" id="resultArea">
         <strong>掃描狀態：</strong> 準備就緒，請將條碼置於鏡頭前
@@ -42,42 +39,42 @@
 </div>
 
 <script>
-    let codeReader;
-    let selectedDeviceId;
+    let codeReader = null;
 
     async function startScanner() {
-        document.getElementById('startBtn').style.display = 'none';
-        document.getElementById('stopBtn').style.display = 'block';
-        
-        codeReader = new ZXing.BrowserBarcodeReader();
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const resultArea = document.getElementById('resultArea');
+
+        startBtn.style.display = 'none';
+        stopBtn.style.display = 'block';
+        resultArea.innerHTML = '<strong>掃描狀態：</strong> 正在啟動鏡頭...';
 
         try {
-            // 取得可用的影片輸入裝置（優先尋找後鏡頭）
+            if (!codeReader) {
+                codeReader = new ZXing.BrowserBarcodeReader();
+            }
+
             const videoInputDevices = await codeReader.listVideoInputDevices();
-            selectedDeviceId = videoInputDevices.find(device => 
+            const selectedDeviceId = videoInputDevices.find(device => 
                 device.label.toLowerCase().includes('back') || 
                 device.label.toLowerCase().includes('environment') ||
                 device.label.toLowerCase().includes('後')
             )?.deviceId || videoInputDevices[videoInputDevices.length - 1].deviceId;
 
-            // 啟動連續解碼核心，專門針對一維條碼優化
+            resultArea.innerHTML = '<strong>掃描狀態：</strong> 鏡頭已啟動，正在極速偵測...';
+
             codeReader.decodeFromVideoDevice(selectedDeviceId, 'video', (result, err) => {
                 if (result) {
-                    document.getElementById('resultArea').innerHTML = `
+                    resultArea.innerHTML = `
                         <div class="success-text">🎉 瞬間秒抓成功！</div>
                         <div>格式：${result.format}</div>
                         <div>內容：<code>${result.text}</code></div>
                     `;
-                    // 觸發震動回饋
                     if (navigator.vibrate) navigator.vibrate(100);
-                }
-                if (err && !(err instanceof ZXing.NotFoundException)) {
-                    // 略過未找到條碼時的常规異常，維持超高效能
-                    console.debug(err);
                 }
             });
 
-            document.getElementById('resultArea').innerHTML = '<strong>掃描狀態：</strong> 鏡頭已啟動，正在極速偵測...';
         } catch (err) {
             alert("無法啟動相機裝置：" + err);
             stopScanner();
