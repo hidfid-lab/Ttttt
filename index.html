@@ -3,9 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>全家 Code 39 - WASM 極速掃描器</title>
-    <!-- 引入支援 WASM 加速的通用條碼辨識 Polyfill 模組 -->
-    <script src="https://cdn.jsdelivr.net/npm/@undecaf/barcode-detector-polyfill@latest/dist/index.js"></script>
+    <title>全家 Code 39 - 純 WASM 極速掃描器</title>
+    <!-- 直接引入 ZBar WASM 核心與條碼解碼套件 -->
     <script src="https://cdn.jsdelivr.net/npm/@undecaf/zbar-wasm@latest/dist/index.js"></script>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; margin: 0; padding: 16px; color: #f8fafc; }
@@ -30,7 +29,7 @@
         <video id="video" muted playsinline autoplay></video>
     </div>
 
-    <button class="btn btn-start" id="startBtn" onclick="startWasmScanner()">▶ 啟動 WASM 極速掃描</button>
+    <button class="btn btn-start" id="startBtn" onclick="startScanner()">▶ 啟動極速掃描</button>
     <button class="btn btn-stop" id="stopBtn" onclick="stopScanner()">⏹ 關閉相機</button>
 
     <div class="result-box" id="resultArea">
@@ -41,9 +40,8 @@
 <script>
     let mediaStream = null;
     let scanInterval = null;
-    let detector = null;
 
-    async function startWasmScanner() {
+    async function startScanner() {
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
         const resultArea = document.getElementById('resultArea');
@@ -51,19 +49,13 @@
 
         startBtn.style.display = 'none';
         stopBtn.style.display = 'block';
-        resultArea.innerHTML = '<strong>掃描狀態：</strong> 正在載入 WASM 加速核心並啟動鏡頭...';
+        resultArea.innerHTML = '<strong>掃描狀態：</strong> 正在啟動相機與載入 WASM 核心...';
 
         try {
-            // 1. 初始化 WASM 條碼偵測器（支援 Code 39）
-            if (!detector) {
-                detector = new BarcodeDetector({ formats: ['code_39'] });
-            }
-
-            // 2. 取得手機後鏡頭串流
+            // 1. 取得手機後鏡頭串流
             mediaStream = await navigator.mediaDevices.getUserMedia({
                 video: { facingMode: { exact: 'environment' } }
             }).catch(() => {
-                // 若後鏡頭強制指定失敗，改用預設環境鏡頭
                 return navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
             });
 
@@ -72,10 +64,10 @@
 
             resultArea.innerHTML = '<strong>掃描狀態：</strong> WASM 高速解碼中，請對準條碼...';
 
-            // 3. 建立隱藏的 Canvas 抓取畫面影格送入 WASM 核心運算
             const canvas = document.createElement('canvas');
             const context = canvas.getContext('2d', { willReadFrequently: true });
 
+            // 2. 迴圈擷取畫面並透過 zbarWasm 進行高速辨識
             scanInterval = setInterval(async () => {
                 if (videoElement.readyState === videoElement.HAVE_ENOUGH_DATA) {
                     canvas.width = videoElement.videoWidth;
@@ -83,25 +75,26 @@
                     context.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
 
                     try {
-                        const barcodes = await detector.detect(canvas);
-                        if (barcodes.length > 0) {
-                            const code = barcodes[0];
+                        // 呼叫 zbarWasm 掃描畫面上的 Code 39
+                        const symbols = await zbarWasm(canvas, 'code-39');
+                        if (symbols && symbols.length > 0) {
+                            const code = symbols[0];
                             resultArea.innerHTML = `
-                                <div class="success-text">🎉 WASM 瞬間秒抓成功！</div>
-                                <div>格式：${code.format}</div>
-                                <div>內容：<code>${code.rawValue}</code></div>
+                                <div class="success-text">🎉 瞬間秒抓成功！</div>
+                                <div>格式：${code.typeName}</div>
+                                <div>內容：<code>${code.decode()}</code></div>
                             `;
                             if (navigator.vibrate) navigator.vibrate(100);
                             stopScanner();
                         }
                     } catch (e) {
-                        // 略過未偵測到時的計算過程
+                        // 忽略每影格未對準時的例外
                     }
                 }
-            }, 150); // 每秒約 6-7 次高強度 WASM 影格掃描
+            }, 150);
 
         } catch (err) {
-            alert("無法啟動相機或 WASM 模組：" + err);
+            alert("無法啟動相機：" + err);
             stopScanner();
         }
     }
