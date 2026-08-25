@@ -3,18 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>全家條碼極速掃描器</title>
-    <script type="text/javascript" src="https://unpkg.com/@zxing/library@latest"></script>
+    <title>全家 Code 39 - WASM 極速掃描器</title>
+    <!-- 引入支援 WASM 加速的通用條碼辨識 Polyfill 模組 -->
+    <script src="https://cdn.jsdelivr.net/npm/@undecaf/barcode-detector-polyfill@latest/dist/index.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@undecaf/zbar-wasm@latest/dist/index.js"></script>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; margin: 0; padding: 16px; color: #f8fafc; }
         .container { max-width: 480px; margin: 0 auto; background: #1e293b; padding: 20px; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); }
         h2 { font-size: 1.2rem; margin-top: 0; color: #fb923c; text-align: center; }
         .video-container { position: relative; width: 100%; border-radius: 12px; overflow: hidden; margin-top: 12px; background: #000; border: 2px solid #334155; }
         video { width: 100%; display: block; object-fit: cover; }
-        .scan-line { position: absolute; top: 50%; left: 10%; right: 10%; height: 2px; background: #ef4444; box-shadow: 0 0 8px #ef4444; animation: scan 2s infinite ease-in-out; }
-        @keyframes scan { 0%, 100% { top: 20%; } 50% { top: 80%; } }
         .btn { width: 100%; padding: 14px; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; font-size: 1rem; margin-top: 12px; transition: background 0.2s; }
         .btn-start { background: #f97316; color: white; }
+        .btn-start:hover { background: #ea580c; }
         .btn-stop { background: #ef4444; color: white; display: none; }
         .result-box { margin-top: 15px; padding: 14px; background: #0f172a; border: 1px solid #334155; border-radius: 10px; font-size: 0.95rem; word-break: break-all; }
         .success-text { color: #4ade80; font-weight: bold; font-size: 1.1rem; }
@@ -23,68 +24,100 @@
 <body>
 
 <div class="container">
-    <h2>🧡 專用一維條碼極速掃描</h2>
+    <h2>🧡 Code 39 WASM 極速掃描</h2>
     
     <div class="video-container">
-        <video id="video" muted playsinline></video>
-        <div class="scan-line"></div>
+        <video id="video" muted playsinline autoplay></video>
     </div>
 
-    <button class="btn btn-start" id="startBtn" onclick="startScanner()">▶ 啟動極速掃描</button>
-    <button class="btn btn-stop" id="stopBtn" onclick="stopScanner()">⏹ 關閉鏡頭</button>
+    <button class="btn btn-start" id="startBtn" onclick="startWasmScanner()">▶ 啟動 WASM 極速掃描</button>
+    <button class="btn btn-stop" id="stopBtn" onclick="stopScanner()">⏹ 關閉相機</button>
 
     <div class="result-box" id="resultArea">
-        <strong>掃描狀態：</strong> 準備就緒，請將條碼置於鏡頭前
+        <strong>掃描狀態：</strong> 準備就緒，點擊按鈕啟動
     </div>
 </div>
 
 <script>
-    let codeReader = null;
+    let mediaStream = null;
+    let scanInterval = null;
+    let detector = null;
 
-    async function startScanner() {
+    async function startWasmScanner() {
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
         const resultArea = document.getElementById('resultArea');
+        const videoElement = document.getElementById('video');
 
         startBtn.style.display = 'none';
         stopBtn.style.display = 'block';
-        resultArea.innerHTML = '<strong>掃描狀態：</strong> 正在啟動鏡頭...';
+        resultArea.innerHTML = '<strong>掃描狀態：</strong> 正在載入 WASM 加速核心並啟動鏡頭...';
 
         try {
-            if (!codeReader) {
-                codeReader = new ZXing.BrowserBarcodeReader();
+            // 1. 初始化 WASM 條碼偵測器（支援 Code 39）
+            if (!detector) {
+                detector = new BarcodeDetector({ formats: ['code_39'] });
             }
 
-            const videoInputDevices = await codeReader.listVideoInputDevices();
-            const selectedDeviceId = videoInputDevices.find(device => 
-                device.label.toLowerCase().includes('back') || 
-                device.label.toLowerCase().includes('environment') ||
-                device.label.toLowerCase().includes('後')
-            )?.deviceId || videoInputDevices[videoInputDevices.length - 1].deviceId;
-
-            resultArea.innerHTML = '<strong>掃描狀態：</strong> 鏡頭已啟動，正在極速偵測...';
-
-            codeReader.decodeFromVideoDevice(selectedDeviceId, 'video', (result, err) => {
-                if (result) {
-                    resultArea.innerHTML = `
-                        <div class="success-text">🎉 瞬間秒抓成功！</div>
-                        <div>格式：${result.format}</div>
-                        <div>內容：<code>${result.text}</code></div>
-                    `;
-                    if (navigator.vibrate) navigator.vibrate(100);
-                }
+            // 2. 取得手機後鏡頭串流
+            mediaStream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: { exact: 'environment' } }
+            }).catch(() => {
+                // 若後鏡頭強制指定失敗，改用預設環境鏡頭
+                return navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
             });
 
+            videoElement.srcObject = mediaStream;
+            await videoElement.play();
+
+            resultArea.innerHTML = '<strong>掃描狀態：</strong> WASM 高速解碼中，請對準條碼...';
+
+            // 3. 建立隱藏的 Canvas 抓取畫面影格送入 WASM 核心運算
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d', { willReadFrequently: true });
+
+            scanInterval = setInterval(async () => {
+                if (videoElement.readyState === videoElement.HAVE_ENOUGH_DATA) {
+                    canvas.width = videoElement.videoWidth;
+                    canvas.height = videoElement.videoHeight;
+                    context.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+
+                    try {
+                        const barcodes = await detector.detect(canvas);
+                        if (barcodes.length > 0) {
+                            const code = barcodes[0];
+                            resultArea.innerHTML = `
+                                <div class="success-text">🎉 WASM 瞬間秒抓成功！</div>
+                                <div>格式：${code.format}</div>
+                                <div>內容：<code>${code.rawValue}</code></div>
+                            `;
+                            if (navigator.vibrate) navigator.vibrate(100);
+                            stopScanner();
+                        }
+                    } catch (e) {
+                        // 略過未偵測到時的計算過程
+                    }
+                }
+            }, 150); // 每秒約 6-7 次高強度 WASM 影格掃描
+
         } catch (err) {
-            alert("無法啟動相機裝置：" + err);
+            alert("無法啟動相機或 WASM 模組：" + err);
             stopScanner();
         }
     }
 
     function stopScanner() {
-        if (codeReader) {
-            codeReader.reset();
+        if (scanInterval) {
+            clearInterval(scanInterval);
+            scanInterval = null;
         }
+        if (mediaStream) {
+            mediaStream.getTracks().forEach(track => track.stop());
+            mediaStream = null;
+        }
+        const videoElement = document.getElementById('video');
+        videoElement.srcObject = null;
+
         document.getElementById('startBtn').style.display = 'block';
         document.getElementById('stopBtn').style.display = 'none';
         document.getElementById('resultArea').innerHTML = '<strong>掃描狀態：</strong> 已停止';
