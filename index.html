@@ -3,14 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>全家極速條碼掃描器</title>
-    <!-- 引入高效能的 html5-qrcode 函式庫 -->
-    <script src="https://unpkg.com/html5-qrcode"></script>
+    <title>全家條碼極速掃描器</title>
+    <!-- 引入高效能的 ZXing 瀏覽器端完整解碼庫 -->
+    <script type="text/javascript" src="https://unpkg.com/@zxing/library@latest"></script>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; margin: 0; padding: 16px; color: #f8fafc; }
         .container { max-width: 480px; margin: 0 auto; background: #1e293b; padding: 20px; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); }
         h2 { font-size: 1.2rem; margin-top: 0; color: #fb923c; text-align: center; }
-        #reader { width: 100%; border-radius: 12px; overflow: hidden; margin-top: 12px; background: #000; border: 2px solid #334155; }
+        .video-container { position: relative; width: 100%; border-radius: 12px; overflow: hidden; margin-top: 12px; background: #000; border: 2px solid #334155; }
+        video { width: 100%; display: block; object-fit: cover; }
+        .scan-line { position: absolute; top: 50%; left: 10%; right: 10%; height: 2px; background: #ef4444; box-shadow: 0 0 8px #ef4444; animation: scan 2s infinite ease-in-out; }
+        @keyframes scan { 0%, 100% { top: 20%; } 50% { top: 80%; } }
         .btn { width: 100%; padding: 14px; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; font-size: 1rem; margin-top: 12px; transition: background 0.2s; }
         .btn-start { background: #f97316; color: white; }
         .btn-start:hover { background: #ea580c; }
@@ -22,72 +25,72 @@
 <body>
 
 <div class="container">
-    <h2>🧡 全家專用 Code 39 極速掃描</h2>
+    <h2>🧡 專用一維條碼極速掃描</h2>
     
-    <!-- 攝影機預覽畫面 -->
-    <div id="reader"></div>
+    <!-- 視訊預覽與紅色掃描線特效 -->
+    <div class="video-container">
+        <video id="video" muted playsinline></video>
+        <div class="scan-line"></div>
+    </div>
 
-    <button class="btn btn-start" id="startBtn" onclick="startScanner()">▶ 啟動鏡頭掃描</button>
-    <button class="btn btn-stop" id="stopBtn" onclick="stopScanner()">⏹ 關閉鏡頭</button>
+    <button class="btn btn-start" id="startBtn" onclick="startScanner()">▶ 啟動極速掃描</button>
+    <button class="btn btn-stop" id="stopBtn" onclick="stopScanner()">⏹ 關閉相機</button>
 
     <div class="result-box" id="resultArea">
-        <strong>掃醒狀態：</strong> 準備就緒，請將全家條碼置於鏡頭前
+        <strong>掃描狀態：</strong> 準備就緒，請將條碼置於鏡頭前
     </div>
 </div>
 
 <script>
-    let html5QrCode;
-    let isRunning = false;
+    let codeReader;
+    let selectedDeviceId;
 
     async function startScanner() {
-        if (isRunning) return;
-
-        html5QrCode = new Html5Qrcode("reader");
+        document.getElementById('startBtn').style.display = 'none';
+        document.getElementById('stopBtn').style.display = 'block';
         
-        // 針對一維條碼優化的設定：拉高 fps、強制指定 CODE_39
-        const config = {
-            fps: 20,
-            qrbox: { width: 320, height: 140 },
-            formatsToSupport: [ Html5QrcodeSupportedFormats.CODE_39 ]
-        };
+        codeReader = new ZXing.BrowserBarcodeReader();
 
         try {
-            await html5QrCode.start(
-                { facingMode: "environment" },
-                config,
-                (decodedText, decodedResult) => {
-                    // 成功抓取條碼時的回調
-                    document.getElementById('resultArea').innerHTML = `
-                        <div class="success-text">🎉 成功讀取！</div>
-                        <div>內容：<code>${decodedText}</code></div>
-                    `;
-                    // 震動回饋（支援的手機裝置會震動）
-                    if (navigator.vibrate) navigator.vibrate(100);
-                },
-                (errorMessage) => {
-                    // 略過未對準時的每影格掃描失敗訊息，保持效能流暢
-                }
-            );
+            // 取得可用的影片輸入裝置（優先尋找後鏡頭）
+            const videoInputDevices = await codeReader.listVideoInputDevices();
+            selectedDeviceId = videoInputDevices.find(device => 
+                device.label.toLowerCase().includes('back') || 
+                device.label.toLowerCase().includes('environment') ||
+                device.label.toLowerCase().includes('後')
+            )?.deviceId || videoInputDevices[videoInputDevices.length - 1].deviceId;
 
-            isRunning = true;
-            document.getElementById('startBtn').style.display = 'none';
-            document.getElementById('stopBtn').style.display = 'block';
+            // 啟動連續解碼核心，專門針對一維條碼優化
+            codeReader.decodeFromVideoDevice(selectedDeviceId, 'video', (result, err) => {
+                if (result) {
+                    document.getElementById('resultArea').innerHTML = `
+                        <div class="success-text">🎉 瞬間秒抓成功！</div>
+                        <div>格式：${result.format}</div>
+                        <div>內容：<code>${result.text}</code></div>
+                    `;
+                    // 觸發震動回饋
+                    if (navigator.vibrate) navigator.vibrate(100);
+                }
+                if (err && !(err instanceof ZXing.NotFoundException)) {
+                    // 略過未找到條碼時的常规異常，維持超高效能
+                    console.debug(err);
+                }
+            });
+
+            document.getElementById('resultArea').innerHTML = '<strong>掃描狀態：</strong> 鏡頭已啟動，正在極速偵測...';
         } catch (err) {
-            alert("無法啟動相機，請檢查權限或 HTTPS 環境：" + err);
+            alert("無法啟動相機裝置：" + err);
+            stopScanner();
         }
     }
 
-    async function stopScanner() {
-        if (!isRunning || !html5QrCode) return;
-        try {
-            await html5QrCode.stop();
-            isRunning = false;
-            document.getElementById('startBtn').style.display = 'block';
-            document.getElementById('stopBtn').style.display = 'none';
-            document.getElementById('resultArea').innerHTML = '<strong>掃描狀態：</strong> 已停止';
-        } catch (err) {
-            console.error("關閉相機失敗", err);
+    function stopScanner() {
+        if (codeReader) {
+            codeReader.reset();
         }
+        document.getElementById('startBtn').style.display = 'block';
+        document.getElementById('stopBtn').style.display = 'none';
+        document.getElementById('resultArea').innerHTML = '<strong>掃描狀態：</strong> 已停止';
     }
 </script>
 
