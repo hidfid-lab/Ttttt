@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>全家 Code 39 - 純 WASM 極速掃描器</title>
-    <!-- 直接引入 ZBar WASM 核心與條碼解碼套件 -->
+    <title>全家 Code 39 - 穩定 WASM 掃描器</title>
+    <!-- 引入 ZBar WASM 核心 -->
     <script src="https://cdn.jsdelivr.net/npm/@undecaf/zbar-wasm@latest/dist/index.js"></script>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; margin: 0; padding: 16px; color: #f8fafc; }
@@ -23,17 +23,17 @@
 <body>
 
 <div class="container">
-    <h2>🧡 Code 39 WASM 極速掃描</h2>
+    <h2>🧡 Code 39 穩定掃描</h2>
     
     <div class="video-container">
         <video id="video" muted playsinline autoplay></video>
     </div>
 
-    <button class="btn btn-start" id="startBtn" onclick="startScanner()">▶ 啟動極速掃描</button>
+    <button class="btn btn-start" id="startBtn" onclick="startScanner()">▶ 啟動掃描</button>
     <button class="btn btn-stop" id="stopBtn" onclick="stopScanner()">⏹ 關閉相機</button>
 
     <div class="result-box" id="resultArea">
-        <strong>掃描狀態：</strong> 準備就緒，點擊按鈕啟動
+        <strong>掃描狀態：</strong> 準備就緒
     </div>
 </div>
 
@@ -49,25 +49,21 @@
 
         startBtn.style.display = 'none';
         stopBtn.style.display = 'block';
-        resultArea.innerHTML = '<strong>掃描狀態：</strong> 正在啟動相機與載入 WASM 核心...';
+        resultArea.innerHTML = '<strong>掃描狀態：</strong> 正在開啟相機...';
 
         try {
-            // 1. 取得手機後鏡頭串流
             mediaStream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: { exact: 'environment' } }
-            }).catch(() => {
-                return navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+                video: { facingMode: 'environment' }
             });
 
             videoElement.srcObject = mediaStream;
             await videoElement.play();
 
-            resultArea.innerHTML = '<strong>掃描狀態：</strong> WASM 高速解碼中，請對準條碼...';
+            resultArea.innerHTML = '<strong>掃描狀態：</strong> 掃描中，請對準條碼...';
 
             const canvas = document.createElement('canvas');
             const context = canvas.getContext('2d', { willReadFrequently: true });
 
-            // 2. 迴圈擷取畫面並透過 zbarWasm 進行高速辨識
             scanInterval = setInterval(async () => {
                 if (videoElement.readyState === videoElement.HAVE_ENOUGH_DATA) {
                     canvas.width = videoElement.videoWidth;
@@ -75,26 +71,28 @@
                     context.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
 
                     try {
-                        // 呼叫 zbarWasm 掃描畫面上的 Code 39
-                        const symbols = await zbarWasm(canvas, 'code-39');
+                        const symbols = await zbarWasm(canvas);
                         if (symbols && symbols.length > 0) {
-                            const code = symbols[0];
-                            resultArea.innerHTML = `
-                                <div class="success-text">🎉 瞬間秒抓成功！</div>
-                                <div>格式：${code.typeName}</div>
-                                <div>內容：<code>${code.decode()}</code></div>
-                            `;
-                            if (navigator.vibrate) navigator.vibrate(100);
-                            stopScanner();
+                            for (let symbol of symbols) {
+                                // 檢查是否為 Code 39 或對應的條碼
+                                resultArea.innerHTML = `
+                                    <div class="success-text">🎉 成功讀取！</div>
+                                    <div>類型：${symbol.typeName}</div>
+                                    <div>內容：<code>${symbol.decode()}</code></div>
+                                `;
+                                if (navigator.vibrate) navigator.vibrate(100);
+                                stopScanner();
+                                break;
+                            }
                         }
                     } catch (e) {
-                        // 忽略每影格未對準時的例外
+                        // 略過未偵測時的例外
                     }
                 }
-            }, 150);
+            }, 200);
 
         } catch (err) {
-            alert("無法啟動相機：" + err);
+            alert("相機啟動失敗：" + err);
             stopScanner();
         }
     }
@@ -108,9 +106,7 @@
             mediaStream.getTracks().forEach(track => track.stop());
             mediaStream = null;
         }
-        const videoElement = document.getElementById('video');
-        videoElement.srcObject = null;
-
+        document.getElementById('video').srcObject = null;
         document.getElementById('startBtn').style.display = 'block';
         document.getElementById('stopBtn').style.display = 'none';
         document.getElementById('resultArea').innerHTML = '<strong>掃描狀態：</strong> 已停止';
