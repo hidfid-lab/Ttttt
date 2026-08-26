@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OmniPass 歐米通：條碼卡包</title>
+    <title>OmniPass 歐米通：條碼卡包 (修復版)</title>
     <style>
         * { box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #13111c; margin: 0; padding: 16px; color: #f8fafc; }
@@ -36,28 +36,28 @@
 <div class="container">
     <div class="section-title">① 通路 (決定條碼格式)</div>
     <div class="btn-group">
-        <button class="opt-btn active" id="btnChannelA" onclick="setChannel('A')">通路 A (CODE128)</button>
-        <button class="opt-btn" id="btnChannelB" onclick="setChannel('B')">通路 B (CODE39)</button>
+        <button class="opt-btn active" id="btnChannelA">通路 A (7-11)</button>
+        <button class="opt-btn" id="btnChannelB">通路 B (全家)</button>
     </div>
 
     <div class="section-title">② 卡片種類</div>
     <div class="btn-group">
-        <button class="opt-btn active" id="btnTypeProduct" onclick="setType('product')">商品卡</button>
-        <button class="opt-btn" id="btnTypeDrink" onclick="setType('drink')">飲品卡</button>
+        <button class="opt-btn active" id="btnTypeProduct">商品卡</button>
+        <button class="opt-btn" id="btnTypeDrink">飲品卡</button>
     </div>
 
     <div class="section-title">③ 掃描模式</div>
     <div class="btn-group">
-        <button class="opt-btn" id="btnModeDual" onclick="setMode('dual')">上下雙條碼</button>
-        <button class="opt-btn active" id="btnModeSingle" onclick="setMode('single')">單一條碼</button>
+        <button class="opt-btn" id="btnModeDual">上下雙條碼</button>
+        <button class="opt-btn active" id="btnModeSingle">單一條碼</button>
     </div>
 
     <div class="info-card">
-        <div class="info-text" id="settingStatus">目前設定：通路A．商品卡．單條碼．CODE128</div>
-        <span class="badge">zbar-wasm 毫秒極速版</span>
+        <div class="info-text" id="settingStatus">目前設定：通路A(7-11)．商品卡．單條碼．CODE128</div>
+        <span class="badge">zbar-wasm 點擊事件修復版</span>
     </div>
 
-    <button class="main-btn" id="mainBtn" onclick="toggleScanner()">▶ 啟動掃描</button>
+    <button class="main-btn" id="mainBtn">▶ 啟動掃描</button>
 
     <div class="video-container" id="videoContainer">
         <video id="video" muted playsinline autoplay></video>
@@ -90,43 +90,65 @@
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
-    window.setChannel = function(ch) {
-        currentChannel = ch;
-        document.getElementById('btnChannelA').classList.toggle('active', ch === 'A');
-        document.getElementById('btnChannelB').classList.toggle('active', ch === 'B');
+    // 按鈕事件監聽繫結
+    document.getElementById('btnChannelA').addEventListener('click', () => {
+        currentChannel = 'A';
+        document.getElementById('btnChannelA').classList.add('active');
+        document.getElementById('btnChannelB').classList.remove('active');
         updateStatus();
-    };
+    });
 
-    window.setType = function(tp) {
-        currentType = tp;
-        document.getElementById('btnTypeProduct').classList.toggle('active', tp === 'product');
-        document.getElementById('btnTypeDrink').classList.toggle('active', tp === 'drink');
+    document.getElementById('btnChannelB').addEventListener('click', () => {
+        currentChannel = 'B';
+        document.getElementById('btnChannelB').classList.add('active');
+        document.getElementById('btnChannelA').classList.remove('active');
         updateStatus();
-    };
+    });
 
-    window.setMode = function(md) {
-        currentMode = md;
-        document.getElementById('btnModeDual').classList.toggle('active', md === 'dual');
-        document.getElementById('btnModeSingle').classList.toggle('active', md === 'single');
+    document.getElementById('btnTypeProduct').addEventListener('click', () => {
+        currentType = 'product';
+        document.getElementById('btnTypeProduct').classList.add('active');
+        document.getElementById('btnTypeDrink').classList.remove('active');
         updateStatus();
-    };
+    });
+
+    document.getElementById('btnTypeDrink').addEventListener('click', () => {
+        currentType = 'drink';
+        document.getElementById('btnTypeDrink').classList.add('active');
+        document.getElementById('btnTypeProduct').classList.remove('active');
+        updateStatus();
+    });
+
+    document.getElementById('btnModeDual').addEventListener('click', () => {
+        currentMode = 'dual';
+        document.getElementById('btnModeDual').classList.add('active');
+        document.getElementById('btnModeSingle').classList.remove('active');
+        updateStatus();
+    });
+
+    document.getElementById('btnModeSingle').addEventListener('click', () => {
+        currentMode = 'single';
+        document.getElementById('btnModeSingle').classList.add('active');
+        document.getElementById('btnModeDual').classList.remove('active');
+        updateStatus();
+    });
+
+    document.getElementById('mainBtn').addEventListener('click', () => {
+        if (!isScanning) {
+            startScanner();
+        } else {
+            stopScanner();
+        }
+    });
 
     function updateStatus() {
-        const chText = currentChannel === 'A' ? '通路A (7-11)' : '通路B (全家)';
+        const chText = currentChannel === 'A' ? '通路A(7-11)' : '通路B(全家)';
         const tpText = currentType === 'product' ? '商品卡' : '飲品卡';
         const mdText = currentMode === 'single' ? '單條碼' : '上下雙條碼';
         const codeText = currentChannel === 'A' ? 'CODE128' : 'CODE39';
         
         document.getElementById('settingStatus').innerText = `目前設定：${chText}．${tpText}．${mdText}．${codeText}`;
     }
-
-    window.toggleScanner = async function() {
-        if (!isScanning) {
-            await startScanner();
-        } else {
-            stopScanner();
-        }
-    };
 
     async function startScanner() {
         const video = document.getElementById('video');
@@ -244,7 +266,7 @@
         if (emptyTip) emptyTip.remove();
 
         const channelTitle = currentChannel === 'A' ? '7-11' : '全家';
-        const typeTitle = currentType === 'product' ? '商品卡' : '饮品卡';
+        const typeTitle = currentType === 'product' ? '商品卡' : '飲品卡';
         
         const item = document.createElement('div');
         item.className = 'saved-item';
