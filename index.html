@@ -3,68 +3,40 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OmniPass 歐米通：高效 ROI 掃描器</title>
+    <title>OmniPass 歐米通：即時除錯版</title>
     <script src="https://cdn.jsdelivr.net/npm/@undecaf/zbar-wasm@latest/dist/index.js"></script>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; margin: 0; padding: 12px; color: #f8fafc; }
         .container { max-width: 480px; margin: 0 auto; background: #1e293b; padding: 16px; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); }
         h2 { font-size: 1.1rem; margin-top: 0; color: #38bdf8; text-align: center; }
-        .section-title { font-size: 0.85rem; color: #94a3b8; margin: 12px 0 6px 0; font-weight: bold; }
-        .btn-group { display: flex; gap: 6px; flex-wrap: wrap; }
-        .option-btn { flex: 1; padding: 8px 10px; background: #334155; border: 1px solid #475569; color: #cbd5e1; border-radius: 8px; font-size: 0.85rem; cursor: pointer; text-align: center; transition: all 0.2s; }
-        .option-btn.active { background: #2563eb; color: white; border-color: #3b82f6; font-weight: bold; }
         .action-btn { width: 100%; padding: 14px; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; font-size: 1rem; margin-top: 16px; background: #10b981; color: white; }
         .action-btn.stop { background: #ef4444; }
         .status-bar { margin-top: 12px; padding: 10px; background: #0f172a; border-radius: 8px; font-size: 0.8rem; color: #38bdf8; border: 1px solid #334155; }
         
-        /* 視訊容器與 ROI 對焦框樣式 */
+        /* 錯誤日誌專用框 */
+        .error-log { margin-top: 10px; padding: 10px; background: #450a0a; border: 1px solid #ef4444; border-radius: 8px; font-size: 0.75rem; color: #fca5a5; word-break: break-all; max-height: 100px; overflow-y: auto; }
+        
         .video-container { position: relative; width: 100%; border-radius: 12px; overflow: hidden; margin-top: 12px; background: #000; display: none; border: 2px solid #334155; }
-        video { width: 100%; display: block; object-fit: cover; max-height: 300px; }
-        .roi-box {
-            position: absolute;
-            top: 50%; left: 50%;
-            transform: translate(-50%, -50%);
-            width: 80%; height: 120px;
-            border: 2px dashed #38bdf8;
-            box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
-            pointer-events: none;
-            border-radius: 8px;
-        }
+        video { width: 100%; display: block; object-fit: cover; max-height: 280px; }
+        .roi-box { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 80%; height: 120px; border: 2px dashed #38bdf8; box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5); pointer-events: none; border-radius: 8px; }
         .result-box { margin-top: 10px; padding: 10px; background: #0f172a; border-radius: 8px; font-size: 0.85rem; word-break: break-all; border: 1px solid #334155; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h2>OmniPass 歐米通：極速掃描引擎</h2>
-
-    <!-- ① 選擇超商 -->
-    <div class="section-title">① 選擇超商 (掃描前設定)</div>
-    <div class="btn-group">
-        <div class="option-btn active" onclick="setStore('7-ELEVEN', this)">7-ELEVEN</div>
-        <div class="option-btn" onclick="setStore('全家', this)">全家</div>
-    </div>
-
-    <!-- ② 選擇卡片種類 -->
-    <div class="section-title">② 選擇卡片種類</div>
-    <div class="btn-group">
-        <div class="option-btn active" onclick="setCardType('商品卡', this)">商品卡</div>
-        <div class="option-btn" onclick="setCardType('咖啡卡', this)">咖啡卡</div>
-    </div>
-
-    <!-- ③ 選擇掃描模式 -->
-    <div class="section-title">④ 選擇掃描模式</div>
-    <div class="btn-group">
-        <div class="option-btn active" onclick="setScanMode('上下雙條碼', this)">上下雙條碼</div>
-        <div class="option-btn" onclick="setScanMode('單一條碼', this)">單一條碼</div>
-    </div>
-
-    <!-- 目前設定提示 -->
-    <div class="status-bar" id="statusBar">
-        目前設定：7-ELEVEN · 商品卡 · 上下雙條碼 · CODE128
-    </div>
+    <h2>OmniPass 歐米通：除錯模式</h2>
 
     <button class="action-btn" id="mainBtn" onclick="toggleScanner()">▶ 啟動視訊連續掃描</button>
+
+    <div class="status-bar" id="statusBar">
+        狀態：等待啟動...
+    </div>
+
+    <!-- 錯誤訊息即時捕捉區 -->
+    <div class="error-log" id="errorLog">
+        系統紀錄：尚無錯誤
+    </div>
 
     <div class="video-container" id="videoContainer">
         <video id="video" muted playsinline autoplay></video>
@@ -77,30 +49,15 @@
 </div>
 
 <script>
-    let state = {
-        store: '7-ELEVEN',
-        cardType: '商品卡',
-        scanMode: '上下雙條碼',
-        barcodeFormat: 'CODE128'
-    };
-
     let mediaStream = null;
     let scanInterval = null;
     let isScanning = false;
     let isProcessing = false;
 
-    function updateUIConfig() {
-        state.barcodeFormat = (state.store === '7-ELEVEN') ? 'CODE128' : 'CODE39';
-        document.getElementById('statusBar').innerText = 
-            `目前設定：${state.store} · ${state.cardType} · ${state.scanMode} · ${state.barcodeFormat}`;
-    }
-
-    function setStore(val, el) { setActive(el); state.store = val; updateUIConfig(); }
-    function setCardType(val, el) { setActive(el); state.cardType = val; updateUIConfig(); }
-    function setScanMode(val, el) { setActive(el); state.scanMode = val; updateUIConfig(); }
-    function setActive(el) {
-        Array.from(el.parentNode.children).forEach(child => child.classList.remove('active'));
-        el.classList.add('active');
+    function logError(msg) {
+        const errBox = document.getElementById('errorLog');
+        errBox.innerHTML += `<br>⚠️ ${new Date().toLocaleTimeString()} : ${msg}`;
+        console.error(msg);
     }
 
     async function toggleScanner() {
@@ -113,64 +70,61 @@
         const videoElement = document.getElementById('video');
         const resultArea = document.getElementById('resultArea');
 
-        videoContainer.style.display = 'block';
-        mainBtn.innerText = '⏹ 關閉視訊掃描';
-        mainBtn.classList.add('stop');
-        isScanning = true;
-        resultArea.innerHTML = `<strong>掃描狀態：</strong> 正在以 ROI 局部裁切模式高效辨識 (${state.barcodeFormat})...`;
+        document.getElementById('errorLog.innerHTML') = '系統紀錄：開始初始化...';
 
         try {
+            // 1. 檢查是否支援多媒體裝置
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                throw new Error("此瀏覽器不支援 navigator.mediaDevices，可能因未使用 HTTPS 安全連線導致。");
+            }
+
+            // 2. 檢查 ZBar Wasm 是否成功載入
+            if (typeof zbarWasm === 'undefined') {
+                throw new Error("zbarWasm 核心未定義，CDN 腳本載入失敗或被阻擋。");
+            }
+
+            mainBtn.innerText = '⏹ 關閉視訊掃描';
+            mainBtn.classList.add('stop');
+            isScanning = true;
+            videoContainer.style.display = 'block';
+
+            document.getElementById('statusBar').innerText = '狀態：正在請求相機權限...';
+
             mediaStream = await navigator.mediaDevices.getUserMedia({
                 video: { facingMode: { exact: 'environment' } }
-            }).catch(() => {
-                return navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+            }).catch(async (e) => {
+                logError("強制後鏡頭失敗，嘗試一般環境鏡頭: " + e.message);
+                return await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
             });
 
             videoElement.srcObject = mediaStream;
             await videoElement.play();
+            document.getElementById('statusBar').innerText = '狀態：相機串流中，尋找條碼...';
 
             const canvas = document.createElement('canvas');
             const context = canvas.getContext('2d', { willReadFrequently: true });
 
-            if (typeof zbarWasm === 'undefined') {
-                throw new Error("ZBar WASM 核心未載入");
-            }
-
             scanInterval = setInterval(async () => {
-                if (isProcessing) return; // 避免疊代運算
+                if (isProcessing) return;
                 if (videoElement.readyState === videoElement.HAVE_ENOUGH_DATA) {
                     isProcessing = true;
-
-                    // 1. 強制把寬度降載至最大 640px，防止手機 CPU 爆量
-                    const targetWidth = 640;
-                    const scale = targetWidth / videoElement.videoWidth;
-                    canvas.width = targetWidth;
-                    canvas.height = videoElement.videoHeight * scale;
-
-                    // 2. 實作 ROI 區域裁切：只抓畫面正中央 80% 寬、高度 120px 對應比例的區域
-                    const srcW = videoElement.videoWidth;
-                    const srcH = videoElement.videoHeight;
-                    const roiW = srcW * 0.8;
-                    const roiH = 140; 
-                    const roiX = (srcW - roiW) / 2;
-                    const roiY = (srcH - roiH) / 2;
-
-                    context.drawImage(
-                        videoElement, 
-                        roiX, roiY, roiW, roiH, 
-                        0, 0, canvas.width, canvas.height
-                    );
-
                     try {
+                        canvas.width = 640;
+                        canvas.height = videoElement.videoHeight * (640 / videoElement.videoWidth);
+
+                        const roiW = videoElement.videoWidth * 0.8;
+                        const roiH = 140; 
+                        const roiX = (videoElement.videoWidth - roiW) / 2;
+                        const roiY = (videoElement.videoHeight - roiH) / 2;
+
+                        context.drawImage(videoElement, roiX, roiY, roiW, roiH, 0, 0, canvas.width, canvas.height);
+
                         const symbols = await zbarWasm(canvas);
                         if (symbols && symbols.length > 0) {
                             for (let symbol of symbols) {
-                                if (symbol.typeName.includes('QR')) continue;
-
                                 resultArea.innerHTML = `
                                     <div style="color: #4ade80; font-weight: bold;">🎉 成功捕捉！</div>
-                                    <div>超商模式：${state.store}</div>
-                                    <div>條碼類型：${symbol.typeName}</div>
+                                    <div>類型：${symbol.typeName}</div>
                                     <div>內容：<code>${symbol.decode()}</code></div>
                                 `;
                                 if (navigator.vibrate) navigator.vibrate(100);
@@ -178,15 +132,16 @@
                                 break;
                             }
                         }
-                    } catch (e) {
-                        // 忽略未命中例外
+                    } catch (errLoop) {
+                        logError("辨識迴圈發生例外: " + errLoop.message);
                     }
                     isProcessing = false;
                 }
-            }, 120);
+            }, 150);
 
         } catch (err) {
-            alert("相機啟動失敗：" + err);
+            logError("啟動主程序失敗: " + err.message);
+            alert("啟動失敗，請查看畫面上方的紅色錯誤日誌：" + err.message);
             stopScanner();
         }
     }
@@ -201,9 +156,8 @@
         mainBtn.classList.remove('stop');
         isScanning = false;
         isProcessing = false;
+        document.getElementById('statusBar').innerText = '狀態：已停止';
     }
-
-    updateUIConfig();
 </script>
 
 </body>
