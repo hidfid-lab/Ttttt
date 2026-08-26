@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OmniPass 歐米通：通路與掃描設定</title>
+    <title>OmniPass 歐米通：高效 ROI 掃描器</title>
     <script src="https://cdn.jsdelivr.net/npm/@undecaf/zbar-wasm@latest/dist/index.js"></script>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; margin: 0; padding: 12px; color: #f8fafc; }
@@ -16,23 +16,33 @@
         .action-btn { width: 100%; padding: 14px; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; font-size: 1rem; margin-top: 16px; background: #10b981; color: white; }
         .action-btn.stop { background: #ef4444; }
         .status-bar { margin-top: 12px; padding: 10px; background: #0f172a; border-radius: 8px; font-size: 0.8rem; color: #38bdf8; border: 1px solid #334155; }
+        
+        /* 視訊容器與 ROI 對焦框樣式 */
         .video-container { position: relative; width: 100%; border-radius: 12px; overflow: hidden; margin-top: 12px; background: #000; display: none; border: 2px solid #334155; }
-        video { width: 100%; display: block; object-fit: cover; max-height: 240px; }
+        video { width: 100%; display: block; object-fit: cover; max-height: 300px; }
+        .roi-box {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 80%; height: 120px;
+            border: 2px dashed #38bdf8;
+            box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
+            pointer-events: none;
+            border-radius: 8px;
+        }
         .result-box { margin-top: 10px; padding: 10px; background: #0f172a; border-radius: 8px; font-size: 0.85rem; word-break: break-all; border: 1px solid #334155; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h2>OmniPass 歐米通：通路與掃描設定</h2>
+    <h2>OmniPass 歐米通：極速掃描引擎</h2>
 
     <!-- ① 選擇超商 -->
     <div class="section-title">① 選擇超商 (掃描前設定)</div>
     <div class="btn-group">
         <div class="option-btn active" onclick="setStore('7-ELEVEN', this)">7-ELEVEN</div>
         <div class="option-btn" onclick="setStore('全家', this)">全家</div>
-        <div class="option-btn" onclick="setStore('萊爾富', this)">萊爾富</div>
-        <div class="option-btn" onclick="setStore('OK超商', this)">OK超商</div>
     </div>
 
     <!-- ② 選擇卡片種類 -->
@@ -42,36 +52,23 @@
         <div class="option-btn" onclick="setCardType('咖啡卡', this)">咖啡卡</div>
     </div>
 
-    <!-- ③ 動態細節選項 -->
-    <div class="section-title" id="subOptionTitle">③ 選擇面額 (元) / 兌換內容</div>
-    <div class="btn-group" id="subOptionGroup">
-        <div class="option-btn active" onclick="setSubOption('35元', this)">35 元</div>
-        <div class="option-btn" onclick="setSubOption('50元', this)">50 元</div>
-    </div>
-
-    <!-- ④ 選擇掃描模式 -->
+    <!-- ③ 選擇掃描模式 -->
     <div class="section-title">④ 選擇掃描模式</div>
     <div class="btn-group">
-        <div class="option-btn active" id="modeDouble" onclick="setScanMode('上下雙條碼', this)">上下雙條碼</div>
-        <div class="option-btn" id="modeSingle" onclick="setScanMode('單一條碼', this)">單一條碼</div>
+        <div class="option-btn active" onclick="setScanMode('上下雙條碼', this)">上下雙條碼</div>
+        <div class="option-btn" onclick="setScanMode('單一條碼', this)">單一條碼</div>
     </div>
 
-    <!-- ⑤ 卡片期限 -->
-    <div class="section-title">⑤ 卡片期限</div>
-    <div class="btn-group">
-        <div class="option-btn active" onclick="setExpire('無期限', this)">無期限 (預設)</div>
-        <div class="option-btn" onclick="setExpire('自訂期限', this)">自訂期限</div>
-    </div>
-
-    <!-- 目前設定提示條 -->
+    <!-- 目前設定提示 -->
     <div class="status-bar" id="statusBar">
-        目前設定：7-ELEVEN · 商品卡 · 35元 · 上下雙條碼 · CODE128 · 無期限
+        目前設定：7-ELEVEN · 商品卡 · 上下雙條碼 · CODE128
     </div>
 
     <button class="action-btn" id="mainBtn" onclick="toggleScanner()">▶ 啟動視訊連續掃描</button>
 
     <div class="video-container" id="videoContainer">
         <video id="video" muted playsinline autoplay></video>
+        <div class="roi-box"></div>
     </div>
 
     <div class="result-box" id="resultArea">
@@ -80,106 +77,34 @@
 </div>
 
 <script>
-    // 狀態變數
     let state = {
         store: '7-ELEVEN',
         cardType: '商品卡',
-        subOption: '35元',
         scanMode: '上下雙條碼',
-        expire: '無期限',
-        barcodeFormat: 'CODE128' // 7-ELEVEN 預設
+        barcodeFormat: 'CODE128'
     };
 
     let mediaStream = null;
     let scanInterval = null;
     let isScanning = false;
+    let isProcessing = false;
 
     function updateUIConfig() {
-        // 依照超商決定預設條碼格式：小七預設 CODE128，全家預設 CODE39
-        if (state.store === '7-ELEVEN') {
-            state.barcodeFormat = 'CODE128';
-        } else if (state.store === '全家') {
-            state.barcodeFormat = 'CODE39';
-        } else {
-            state.barcodeFormat = 'CODE128';
-        }
-
-        const subTitle = document.getElementById('subOptionTitle');
-        const subGroup = document.getElementById('subOptionGroup');
-        subGroup.innerHTML = '';
-
-        if (state.cardType === '商品卡') {
-            subTitle.innerText = '③ 選擇面額 (元)';
-            ['20元', '35元', '50元', '100元'].forEach((val, idx) => {
-                const btn = document.createElement('div');
-                btn.className = `option-btn ${idx === 1 ? 'active' : ''}`;
-                btn.innerText = val;
-                btn.onclick = () => setSubOption(val, btn);
-                subGroup.appendChild(btn);
-            });
-            if (!['20元', '35元', '50元', '100元'].includes(state.subOption)) state.subOption = '35元';
-        } else {
-            subTitle.innerText = '③ 選擇咖啡兌換內容';
-            let options = state.store === '7-ELEVEN' 
-                ? ['中杯拿鐵/大杯美式', '中杯美式'] 
-                : ['經典美式(中杯)', '熱經典美式(小杯)'];
-            
-            options.forEach((val, idx) => {
-                const btn = document.createElement('div');
-                btn.className = `option-btn ${idx === 0 ? 'active' : ''}`;
-                btn.innerText = val;
-                btn.onclick = () => setSubOption(val, btn);
-                subGroup.appendChild(btn);
-            });
-            state.subOption = options[0];
-        }
-
-        // 更新下方狀態提示文字
+        state.barcodeFormat = (state.store === '7-ELEVEN') ? 'CODE128' : 'CODE39';
         document.getElementById('statusBar').innerText = 
-            `目前設定：${state.store} · ${state.cardType} · ${state.subOption} · ${state.scanMode} · ${state.barcodeFormat} · ${state.expire}`;
+            `目前設定：${state.store} · ${state.cardType} · ${state.scanMode} · ${state.barcodeFormat}`;
     }
 
-    function setStore(val, el) {
-        setActive(el);
-        state.store = val;
-        updateUIConfig();
-    }
-
-    function setCardType(val, el) {
-        setActive(el);
-        state.cardType = val;
-        updateUIConfig();
-    }
-
-    function setSubOption(val, el) {
-        setActive(el);
-        state.subOption = val;
-        updateUIConfig();
-    }
-
-    function setScanMode(val, el) {
-        setActive(el);
-        state.scanMode = val;
-        updateUIConfig();
-    }
-
-    function setExpire(val, el) {
-        setActive(el);
-        state.expire = val;
-        updateUIConfig();
-    }
-
+    function setStore(val, el) { setActive(el); state.store = val; updateUIConfig(); }
+    function setCardType(val, el) { setActive(el); state.cardType = val; updateUIConfig(); }
+    function setScanMode(val, el) { setActive(el); state.scanMode = val; updateUIConfig(); }
     function setActive(el) {
         Array.from(el.parentNode.children).forEach(child => child.classList.remove('active'));
         el.classList.add('active');
     }
 
     async function toggleScanner() {
-        if (!isScanning) {
-            await startScanner();
-        } else {
-            stopScanner();
-        }
+        if (!isScanning) { await startScanner(); } else { stopScanner(); }
     }
 
     async function startScanner() {
@@ -192,7 +117,7 @@
         mainBtn.innerText = '⏹ 關閉視訊掃描';
         mainBtn.classList.add('stop');
         isScanning = true;
-        resultArea.innerHTML = `<strong>掃描狀態：</strong> 正在以 ${state.barcodeFormat} 格式 (${state.scanMode}) 高速辨識中...`;
+        resultArea.innerHTML = `<strong>掃描狀態：</strong> 正在以 ROI 局部裁切模式高效辨識 (${state.barcodeFormat})...`;
 
         try {
             mediaStream = await navigator.mediaDevices.getUserMedia({
@@ -208,25 +133,43 @@
             const context = canvas.getContext('2d', { willReadFrequently: true });
 
             if (typeof zbarWasm === 'undefined') {
-                throw new Error("ZBar WASM 核心未成功載入");
+                throw new Error("ZBar WASM 核心未載入");
             }
 
             scanInterval = setInterval(async () => {
+                if (isProcessing) return; // 避免疊代運算
                 if (videoElement.readyState === videoElement.HAVE_ENOUGH_DATA) {
-                    canvas.width = videoElement.videoWidth;
-                    canvas.height = videoElement.videoHeight;
-                    context.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+                    isProcessing = true;
+
+                    // 1. 強制把寬度降載至最大 640px，防止手機 CPU 爆量
+                    const targetWidth = 640;
+                    const scale = targetWidth / videoElement.videoWidth;
+                    canvas.width = targetWidth;
+                    canvas.height = videoElement.videoHeight * scale;
+
+                    // 2. 實作 ROI 區域裁切：只抓畫面正中央 80% 寬、高度 120px 對應比例的區域
+                    const srcW = videoElement.videoWidth;
+                    const srcH = videoElement.videoHeight;
+                    const roiW = srcW * 0.8;
+                    const roiH = 140; 
+                    const roiX = (srcW - roiW) / 2;
+                    const roiY = (srcH - roiH) / 2;
+
+                    context.drawImage(
+                        videoElement, 
+                        roiX, roiY, roiW, roiH, 
+                        0, 0, canvas.width, canvas.height
+                    );
 
                     try {
                         const symbols = await zbarWasm(canvas);
                         if (symbols && symbols.length > 0) {
                             for (let symbol of symbols) {
-                                // 依據設定過濾 QR Code (預設關閉 QR，只抓一維條碼)
                                 if (symbol.typeName.includes('QR')) continue;
 
                                 resultArea.innerHTML = `
                                     <div style="color: #4ade80; font-weight: bold;">🎉 成功捕捉！</div>
-                                    <div>通路模式：${state.store} (${state.scanMode})</div>
+                                    <div>超商模式：${state.store}</div>
                                     <div>條碼類型：${symbol.typeName}</div>
                                     <div>內容：<code>${symbol.decode()}</code></div>
                                 `;
@@ -236,10 +179,11 @@
                             }
                         }
                     } catch (e) {
-                        // 略過無效畫面捕捉
+                        // 忽略未命中例外
                     }
+                    isProcessing = false;
                 }
-            }, 150);
+            }, 120);
 
         } catch (err) {
             alert("相機啟動失敗：" + err);
@@ -248,23 +192,17 @@
     }
 
     function stopScanner() {
-        if (scanInterval) {
-            clearInterval(scanInterval);
-            scanInterval = null;
-        }
-        if (mediaStream) {
-            mediaStream.getTracks().forEach(track => track.stop());
-            mediaStream = null;
-        }
+        if (scanInterval) { clearInterval(scanInterval); scanInterval = null; }
+        if (mediaStream) { mediaStream.getTracks().forEach(track => track.stop()); mediaStream = null; }
         document.getElementById('video').srcObject = null;
         document.getElementById('videoContainer').style.display = 'none';
         const mainBtn = document.getElementById('mainBtn');
         mainBtn.innerText = '▶ 啟動視訊連續掃描';
         mainBtn.classList.remove('stop');
         isScanning = false;
+        isProcessing = false;
     }
 
-    // 初始化介面
     updateUIConfig();
 </script>
 
