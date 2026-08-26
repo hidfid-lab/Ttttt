@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>全家 Code 39 - 穩定 WASM 掃描器</title>
-    <!-- 引入 ZBar WASM 核心 -->
+    <title>全家條碼極速掃描 (同款 ZBar 核心)</title>
+    <!-- 引入與對方完全相同的 ZBar WASM 解碼核心 -->
     <script src="https://cdn.jsdelivr.net/npm/@undecaf/zbar-wasm@latest/dist/index.js"></script>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; margin: 0; padding: 16px; color: #f8fafc; }
@@ -23,13 +23,13 @@
 <body>
 
 <div class="container">
-    <h2>🧡 Code 39 穩定掃描</h2>
+    <h2>🧡 ZBar 核心極速掃描</h2>
     
     <div class="video-container">
         <video id="video" muted playsinline autoplay></video>
     </div>
 
-    <button class="btn btn-start" id="startBtn" onclick="startScanner()">▶ 啟動掃描</button>
+    <button class="btn btn-start" id="startBtn" onclick="startZBarScanner()">▶ 啟動極速掃描</button>
     <button class="btn btn-stop" id="stopBtn" onclick="stopScanner()">⏹ 關閉相機</button>
 
     <div class="result-box" id="resultArea">
@@ -41,7 +41,7 @@
     let mediaStream = null;
     let scanInterval = null;
 
-    async function startScanner() {
+    async function startZBarScanner() {
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
         const resultArea = document.getElementById('resultArea');
@@ -49,21 +49,30 @@
 
         startBtn.style.display = 'none';
         stopBtn.style.display = 'block';
-        resultArea.innerHTML = '<strong>掃描狀態：</strong> 正在開啟相機...';
+        resultArea.innerHTML = '<strong>掃描狀態：</strong> 正在載入 ZBar 核心並啟動相機...';
 
         try {
+            // 強制啟動手機後鏡頭
             mediaStream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: 'environment' }
+                video: { facingMode: { exact: 'environment' } }
+            }).catch(() => {
+                return navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
             });
 
             videoElement.srcObject = mediaStream;
             await videoElement.play();
 
-            resultArea.innerHTML = '<strong>掃描狀態：</strong> 掃描中，請對準條碼...';
+            resultArea.innerHTML = '<strong>掃描狀態：</strong> 正在以 ZBar 高速解碼中...';
 
             const canvas = document.createElement('canvas');
             const context = canvas.getContext('2d', { willReadFrequently: true });
 
+            // 確保 WASM 模組預先載入就緒
+            if (typeof zbarWasm === 'undefined') {
+                throw new Error("ZBar WASM 核心載入失敗");
+            }
+
+            // 高頻率捕捉畫面送入 ZBar 辨識
             scanInterval = setInterval(async () => {
                 if (videoElement.readyState === videoElement.HAVE_ENOUGH_DATA) {
                     canvas.width = videoElement.videoWidth;
@@ -74,10 +83,9 @@
                         const symbols = await zbarWasm(canvas);
                         if (symbols && symbols.length > 0) {
                             for (let symbol of symbols) {
-                                // 檢查是否為 Code 39 或對應的條碼
                                 resultArea.innerHTML = `
-                                    <div class="success-text">🎉 成功讀取！</div>
-                                    <div>類型：${symbol.typeName}</div>
+                                    <div class="success-text">🎉 秒抓成功！</div>
+                                    <div>格式：${symbol.typeName}</div>
                                     <div>內容：<code>${symbol.decode()}</code></div>
                                 `;
                                 if (navigator.vibrate) navigator.vibrate(100);
@@ -86,13 +94,13 @@
                             }
                         }
                     } catch (e) {
-                        // 略過未偵測時的例外
+                        // 忽略未掃到時的例外
                     }
                 }
-            }, 200);
+            }, 100); // 每秒 10 次高頻率掃描
 
         } catch (err) {
-            alert("相機啟動失敗：" + err);
+            alert("啟動失敗：" + err);
             stopScanner();
         }
     }
