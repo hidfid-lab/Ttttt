@@ -3,165 +3,272 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OmniPass 歐米通：WASM 正確解析版</title>
+    <title>OmniPass 歐米通：條碼卡包</title>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; margin: 0; padding: 12px; color: #f8fafc; }
-        .container { max-width: 480px; margin: 0 auto; background: #1e293b; padding: 16px; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); }
-        h2 { font-size: 1.1rem; margin-top: 0; color: #38bdf8; text-align: center; }
-        .action-btn { width: 100%; padding: 14px; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; font-size: 1rem; margin-top: 16px; background: #10b981; color: white; }
-        .action-btn.stop { background: #ef4444; }
-        .status-bar { margin-top: 12px; padding: 10px; background: #0f172a; border-radius: 8px; font-size: 0.80rem; color: #38bdf8; border: 1px solid #334155; }
-        .error-log { margin-top: 10px; padding: 10px; background: #450a0a; border: 1px solid #ef4444; border-radius: 8px; font-size: 0.75rem; color: #fca5a5; display: none; word-break: break-all; }
-        .video-container { position: relative; width: 100%; border-radius: 12px; overflow: hidden; margin-top: 12px; background: #000; display: none; border: 2px solid #334155; }
-        video { width: 100%; display: block; object-fit: cover; max-height: 280px; }
-        .roi-box { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 80%; height: 120px; border: 2px dashed #38bdf8; box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5); pointer-events: none; border-radius: 8px; }
-        .result-box { margin-top: 10px; padding: 10px; background: #0f172a; border-radius: 8px; font-size: 0.85rem; word-break: break-all; border: 1px solid #334155; }
+        * { box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #13111c; margin: 0; padding: 16px; color: #f8fafc; }
+        .container { max-width: 480px; margin: 0 auto; background: #1e1b2e; padding: 20px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        
+        .section-title { font-size: 0.95rem; font-weight: bold; margin: 16px 0 8px 0; color: #cbd5e1; display: flex; align-items: center; gap: 6px; }
+        .btn-group { display: flex; gap: 10px; margin-bottom: 12px; }
+        .opt-btn { flex: 1; padding: 12px 8px; border: 1px solid #3b3554; background: #2a253e; color: #94a3b8; border-radius: 10px; font-weight: bold; font-size: 0.9rem; cursor: pointer; transition: all 0.2s; }
+        .opt-btn.active { background: #8b5cf6; color: #ffffff; border-color: #a78bfa; box-shadow: 0 0 12px rgba(139, 92, 246, 0.4); }
+        
+        .info-card { background: #171424; border: 1px solid #2e2845; border-radius: 12px; padding: 12px; margin: 16px 0; font-size: 0.85rem; }
+        .info-text { color: #d8b4fe; margin-bottom: 8px; font-weight: bold; }
+        .badge { display: inline-block; background: #064e3b; color: #34d399; padding: 4px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: bold; }
+        
+        .main-btn { width: 100%; padding: 16px; border: none; border-radius: 12px; font-weight: bold; font-size: 1.1rem; cursor: pointer; background: #00d294; color: #052e16; margin-bottom: 16px; transition: all 0.2s; }
+        .main-btn.stop { background: #ef4444; color: #ffffff; }
+        
+        .video-container { position: relative; width: 100%; border-radius: 14px; overflow: hidden; background: #000; display: none; margin-bottom: 16px; border: 2px solid #8b5cf6; }
+        video { width: 100%; display: block; object-fit: cover; max-height: 260px; }
+        .roi-box { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 85%; height: 120px; border: 2px dashed #a78bfa; box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5); pointer-events: none; border-radius: 8px; }
+        
+        .result-card { background: #171424; border: 1px solid #2e2845; border-radius: 12px; padding: 14px; margin-bottom: 20px; font-size: 0.9rem; color: #cbd5e1; word-break: break-all; }
+        .card-list-title { font-size: 1rem; font-weight: bold; color: #a78bfa; margin-bottom: 12px; }
+        .empty-tip { text-align: center; color: #64748b; font-size: 0.85rem; padding: 20px 0; }
+        .saved-item { background: #2a253e; border: 1px solid #3b3554; border-radius: 10px; padding: 10px; margin-bottom: 8px; font-size: 0.85rem; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h2>OmniPass 歐米通：模組修正版</h2>
-
-    <button class="action-btn" id="mainBtn" onclick="toggleScanner()">▶ 啟動視訊連續掃描</button>
-
-    <div class="status-bar" id="statusBar">
-        狀態：等待啟動...
+    <div class="section-title">① 通路 (決定條碼格式)</div>
+    <div class="btn-group">
+        <button class="opt-btn active" id="btnChannelA" onclick="setChannel('A')">通路 A (CODE128)</button>
+        <button class="opt-btn" id="btnChannelB" onclick="setChannel('B')">通路 B (CODE39)</button>
     </div>
 
-    <div class="error-log" id="errorLog"></div>
+    <div class="section-title">② 卡片種類</div>
+    <div class="btn-group">
+        <button class="opt-btn active" id="btnTypeProduct" onclick="setType('product')">商品卡</button>
+        <button class="opt-btn" id="btnTypeDrink" onclick="setType('drink')">飲品卡</button>
+    </div>
+
+    <div class="section-title">③ 掃描模式</div>
+    <div class="btn-group">
+        <button class="opt-btn" id="btnModeDual" onclick="setMode('dual')">上下雙條碼</button>
+        <button class="opt-btn active" id="btnModeSingle" onclick="setMode('single')">單一條碼</button>
+    </div>
+
+    <div class="info-card">
+        <div class="info-text" id="settingStatus">目前設定：通路A．商品卡．單條碼．CODE128</div>
+        <span class="badge">zbar-wasm 毫秒極速版</span>
+    </div>
+
+    <button class="main-btn" id="mainBtn" onclick="toggleScanner()">▶ 啟動掃描</button>
 
     <div class="video-container" id="videoContainer">
         <video id="video" muted playsinline autoplay></video>
         <div class="roi-box"></div>
     </div>
 
-    <div class="result-box" id="resultArea">
+    <div class="result-card" id="resultArea">
         <strong>掃描結果：</strong> 尚未讀取
+    </div>
+
+    <div class="card-list-title">已收錄卡片</div>
+    <div id="cardList">
+        <div class="empty-tip">尚未收錄任何卡片</div>
     </div>
 </div>
 
-<script>
-    let mediaStream = null;
-    let scanInterval = null;
+<script type="module">
+    import { scanImageData } from 'https://cdn.jsdelivr.net/npm/@undecaf/zbar-wasm@latest/dist/index.js';
+
+    let currentChannel = 'A'; // A: 7-11 (CODE128), B: 全家 (CODE39)
+    let currentType = 'product'; // product: 商品卡, drink: 飲品卡
+    let currentMode = 'single'; // single: 單條碼, dual: 上下雙條碼
+
     let isScanning = false;
     let isProcessing = false;
-    let zbarModule = null;
+    let mediaStream = null;
+    let animFrameId = null;
+    let dualBuffers = [];
 
-    function showError(msg) {
-        const errBox = document.getElementById('errorLog');
-        errBox.style.display = 'block';
-        errBox.innerHTML = `⚠️ 錯誤：${msg}`;
-        console.error(msg);
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+    window.setChannel = function(ch) {
+        currentChannel = ch;
+        document.getElementById('btnChannelA').classList.toggle('active', ch === 'A');
+        document.getElementById('btnChannelB').classList.toggle('active', ch === 'B');
+        updateStatus();
+    };
+
+    window.setType = function(tp) {
+        currentType = tp;
+        document.getElementById('btnTypeProduct').classList.toggle('active', tp === 'product');
+        document.getElementById('btnTypeDrink').classList.toggle('active', tp === 'drink');
+        updateStatus();
+    };
+
+    window.setMode = function(md) {
+        currentMode = md;
+        document.getElementById('btnModeDual').classList.toggle('active', md === 'dual');
+        document.getElementById('btnModeSingle').classList.toggle('active', md === 'single');
+        updateStatus();
+    };
+
+    function updateStatus() {
+        const chText = currentChannel === 'A' ? '通路A (7-11)' : '通路B (全家)';
+        const tpText = currentType === 'product' ? '商品卡' : '飲品卡';
+        const mdText = currentMode === 'single' ? '單條碼' : '上下雙條碼';
+        const codeText = currentChannel === 'A' ? 'CODE128' : 'CODE39';
+        
+        document.getElementById('settingStatus').innerText = `目前設定：${chText}．${tpText}．${mdText}．${codeText}`;
     }
 
-    async function toggleScanner() {
-        if (!isScanning) { 
-            await startScanner(); 
-        } else { 
-            stopScanner(); 
+    window.toggleScanner = async function() {
+        if (!isScanning) {
+            await startScanner();
+        } else {
+            stopScanner();
         }
-    }
+    };
 
     async function startScanner() {
+        const video = document.getElementById('video');
         const mainBtn = document.getElementById('mainBtn');
         const videoContainer = document.getElementById('videoContainer');
-        const videoElement = document.getElementById('video');
         const resultArea = document.getElementById('resultArea');
-        const statusBar = document.getElementById('statusBar');
 
-        document.getElementById('errorLog').style.display = 'none';
+        dualBuffers = [];
+        resultArea.innerHTML = '<strong>掃描結果：</strong> 正在開啓相機...';
 
         try {
-            statusBar.innerText = '狀態：正在載入 ZBar WASM 核心...';
-            
-            // 修正點：透過動態 ES 模組正確載入 zbar-wasm 及其方法
-            if (!zbarModule) {
-                zbarModule = await import('https://cdn.jsdelivr.net/npm/@undecaf/zbar-wasm@latest/dist/index.js');
-            }
-
-            mainBtn.innerText = '⏹ 關閉視訊掃描';
-            mainBtn.classList.add('stop');
-            isScanning = true;
-            videoContainer.style.display = 'block';
-            statusBar.innerText = '狀態：正在開啟相機...';
-
             mediaStream = await navigator.mediaDevices.getUserMedia({
                 video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
-            }).catch(() => {
-                return navigator.mediaDevices.getUserMedia({ video: true });
-            });
+            }).catch(() => navigator.mediaDevices.getUserMedia({ video: true }));
 
-            videoElement.srcObject = mediaStream;
-            await videoElement.play();
-            statusBar.innerText = '狀態：對準條碼中（請將條碼置於框內）...';
+            video.srcObject = mediaStream;
+            await video.play();
 
-            const canvas = document.createElement('canvas');
-            const context = canvas.getContext('2d', { willReadFrequently: true });
+            isScanning = true;
+            videoContainer.style.display = 'block';
+            mainBtn.innerText = '⏹ 停止掃描';
+            mainBtn.classList.add('stop');
+            resultArea.innerHTML = currentMode === 'single' ? 
+                '<strong>掃描結果：</strong> 對準條碼中...' : 
+                '<strong>掃描結果：</strong> 請先對準上方第一條碼...';
 
-            scanInterval = setInterval(async () => {
-                if (isProcessing) return;
-                if (videoElement.readyState === videoElement.HAVE_ENOUGH_DATA) {
-                    isProcessing = true;
-                    try {
-                        // 1. 降載畫布尺寸以提升效能
-                        canvas.width = 640;
-                        canvas.height = videoElement.videoHeight * (640 / videoElement.videoWidth);
-
-                        // 2. 進行 ROI 區域裁切計算
-                        const srcW = videoElement.videoWidth;
-                        const srcH = videoElement.videoHeight;
-                        const roiW = srcW * 0.8;
-                        const roiH = 140; 
-                        const roiX = (srcW - roiW) / 2;
-                        const roiY = (srcH - roiH) / 2;
-
-                        context.drawImage(videoElement, roiX, roiY, roiW, roiH, 0, 0, canvas.width, canvas.height);
-
-                        // 3. 修正點：從 canvas 取出 ImageData，並呼叫 zbarModule.scanImageData
-                        const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-                        const symbols = await zbarModule.scanImageData(imageData);
-
-                        if (symbols && symbols.length > 0) {
-                            for (let symbol of symbols) {
-                                const codeText = symbol.decode();
-                                if (codeText) {
-                                    resultArea.innerHTML = `
-                                        <div style="color: #4ade80; font-weight: bold;">🎉 成功捕捉！</div>
-                                        <div>類型：${symbol.typeName}</div>
-                                        <div>內容：<code>${codeText}</code></div>
-                                    `;
-                                    if (navigator.vibrate) navigator.vibrate(100);
-                                    stopScanner();
-                                    break;
-                                }
-                            }
-                        }
-                    } catch (e) {
-                        console.error("掃描解析執行錯誤：", e);
-                    }
-                    isProcessing = false;
-                }
-            }, 150);
-
+            requestAnimationFrame(processFrame);
         } catch (err) {
-            showError(err.message);
-            alert("啟動失敗：" + err.message);
+            alert('相機啟動失敗：' + err.message);
             stopScanner();
         }
     }
 
+    async function processFrame() {
+        if (!isScanning) return;
+
+        const video = document.getElementById('video');
+
+        if (video.readyState === video.HAVE_ENOUGH_DATA && !isProcessing) {
+            isProcessing = true;
+
+            canvas.width = 640;
+            canvas.height = video.videoHeight * (640 / video.videoWidth);
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            try {
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                const symbols = await scanImageData(imageData);
+
+                if (symbols && symbols.length > 0) {
+                    for (let symbol of symbols) {
+                        const codeVal = symbol.decode();
+                        const typeName = (symbol.typeName || '').toUpperCase();
+
+                        // 7-11 鎖定 CODE128，全家鎖定 CODE39
+                        const isTargetFormat = (currentChannel === 'A' && typeName.includes('128')) ||
+                                               (currentChannel === 'B' && typeName.includes('39'));
+
+                        if (isTargetFormat && codeVal) {
+                            handleCapturedCode(codeVal, typeName);
+                            break;
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error('解碼異常：', e);
+            }
+
+            isProcessing = false;
+        }
+
+        if (isScanning) {
+            animFrameId = requestAnimationFrame(processFrame);
+        }
+    }
+
+    function handleCapturedCode(codeVal, typeName) {
+        const resultArea = document.getElementById('resultArea');
+
+        if (navigator.vibrate) navigator.vibrate(80);
+
+        if (currentMode === 'single') {
+            resultArea.innerHTML = `
+                <div style="color: #4ade80; font-weight: bold;">🎉 單條碼讀取成功！</div>
+                <div>格式：${typeName}</div>
+                <div>內容：<code>${codeVal}</code></div>
+            `;
+            saveToCollection([codeVal]);
+            stopScanner();
+        } else {
+            if (dualBuffers.length === 0) {
+                dualBuffers.push(codeVal);
+                resultArea.innerHTML = `
+                    <div style="color: #facc15; font-weight: bold;">⚠️ 已捕捉上條碼：${codeVal}</div>
+                    <div>請將鏡頭移至下方第二條碼...</div>
+                `;
+                isProcessing = true;
+                setTimeout(() => { isProcessing = false; }, 1200);
+            } else if (dualBuffers.length === 1 && dualBuffers[0] !== codeVal) {
+                dualBuffers.push(codeVal);
+                resultArea.innerHTML = `
+                    <div style="color: #4ade80; font-weight: bold;">🎉 雙條碼讀取完成！</div>
+                    <div>上條碼：<code>${dualBuffers[0]}</code></div>
+                    <div>下條碼：<code>${dualBuffers[1]}</code></div>
+                `;
+                saveToCollection(dualBuffers);
+                stopScanner();
+            }
+        }
+    }
+
+    function saveToCollection(codes) {
+        const cardList = document.getElementById('cardList');
+        const emptyTip = cardList.querySelector('.empty-tip');
+        if (emptyTip) emptyTip.remove();
+
+        const channelTitle = currentChannel === 'A' ? '7-11' : '全家';
+        const typeTitle = currentType === 'product' ? '商品卡' : '饮品卡';
+        
+        const item = document.createElement('div');
+        item.className = 'saved-item';
+        item.innerHTML = `
+            <div style="color: #a78bfa; font-weight: bold; margin-bottom: 4px;">${channelTitle} - ${typeTitle}</div>
+            ${codes.map((c, i) => `<div>條碼 ${i + 1}：<code>${c}</code></div>`).join('')}
+        `;
+        cardList.prepend(item);
+    }
+
     function stopScanner() {
-        if (scanInterval) { clearInterval(scanInterval); scanInterval = null; }
-        if (mediaStream) { mediaStream.getTracks().forEach(track => track.stop()); mediaStream = null; }
-        document.getElementById('video').srcObject = null;
-        document.getElementById('videoContainer').style.display = 'none';
-        const mainBtn = document.getElementById('mainBtn');
-        mainBtn.innerText = '▶ 啟動視訊連續掃描';
-        mainBtn.classList.remove('stop');
         isScanning = false;
         isProcessing = false;
-        document.getElementById('statusBar').innerText = '狀態：已停止';
+        if (animFrameId) cancelAnimationFrame(animFrameId);
+        if (mediaStream) {
+            mediaStream.getTracks().forEach(t => t.stop());
+            mediaStream = null;
+        }
+        document.getElementById('video').srcObject = null;
+        document.getElementById('videoContainer').style.display = 'none';
+        
+        const mainBtn = document.getElementById('mainBtn');
+        mainBtn.innerText = '▶ 啟動掃描';
+        mainBtn.classList.remove('stop');
     }
 </script>
 
