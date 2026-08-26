@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OmniPass 歐米通：即時除錯版</title>
+    <title>OmniPass 歐米通：穩定相機與掃描版</title>
+    <!-- 引入 ZBar WASM 核心 -->
     <script src="https://cdn.jsdelivr.net/npm/@undecaf/zbar-wasm@latest/dist/index.js"></script>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; margin: 0; padding: 12px; color: #f8fafc; }
@@ -12,10 +13,6 @@
         .action-btn { width: 100%; padding: 14px; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; font-size: 1rem; margin-top: 16px; background: #10b981; color: white; }
         .action-btn.stop { background: #ef4444; }
         .status-bar { margin-top: 12px; padding: 10px; background: #0f172a; border-radius: 8px; font-size: 0.8rem; color: #38bdf8; border: 1px solid #334155; }
-        
-        /* 錯誤日誌專用框 */
-        .error-log { margin-top: 10px; padding: 10px; background: #450a0a; border: 1px solid #ef4444; border-radius: 8px; font-size: 0.75rem; color: #fca5a5; word-break: break-all; max-height: 100px; overflow-y: auto; }
-        
         .video-container { position: relative; width: 100%; border-radius: 12px; overflow: hidden; margin-top: 12px; background: #000; display: none; border: 2px solid #334155; }
         video { width: 100%; display: block; object-fit: cover; max-height: 280px; }
         .roi-box { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 80%; height: 120px; border: 2px dashed #38bdf8; box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5); pointer-events: none; border-radius: 8px; }
@@ -25,17 +22,12 @@
 <body>
 
 <div class="container">
-    <h2>OmniPass 歐米通：除錯模式</h2>
+    <h2>OmniPass 歐米通：穩定相機版</h2>
 
     <button class="action-btn" id="mainBtn" onclick="toggleScanner()">▶ 啟動視訊連續掃描</button>
 
     <div class="status-bar" id="statusBar">
         狀態：等待啟動...
-    </div>
-
-    <!-- 錯誤訊息即時捕捉區 -->
-    <div class="error-log" id="errorLog">
-        系統紀錄：尚無錯誤
     </div>
 
     <div class="video-container" id="videoContainer">
@@ -54,14 +46,12 @@
     let isScanning = false;
     let isProcessing = false;
 
-    function logError(msg) {
-        const errBox = document.getElementById('errorLog');
-        errBox.innerHTML += `<br>⚠️ ${new Date().toLocaleTimeString()} : ${msg}`;
-        console.error(msg);
-    }
-
     async function toggleScanner() {
-        if (!isScanning) { await startScanner(); } else { stopScanner(); }
+        if (!isScanning) { 
+            await startScanner(); 
+        } else { 
+            stopScanner(); 
+        }
     }
 
     async function startScanner() {
@@ -69,79 +59,74 @@
         const videoContainer = document.getElementById('videoContainer');
         const videoElement = document.getElementById('video');
         const resultArea = document.getElementById('resultArea');
-
-        document.getElementById('errorLog.innerHTML') = '系統紀錄：開始初始化...';
+        const statusBar = document.getElementById('statusBar');
 
         try {
-            // 1. 檢查是否支援多媒體裝置
-            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                throw new Error("此瀏覽器不支援 navigator.mediaDevices，可能因未使用 HTTPS 安全連線導致。");
-            }
-
-            // 2. 檢查 ZBar Wasm 是否成功載入
+            // 檢查 ZBar WASM 是否載入
             if (typeof zbarWasm === 'undefined') {
-                throw new Error("zbarWasm 核心未定義，CDN 腳本載入失敗或被阻擋。");
+                throw new Error("ZBar WASM 核心尚未就緒，請檢查網路連線。");
             }
 
             mainBtn.innerText = '⏹ 關閉視訊掃描';
             mainBtn.classList.add('stop');
             isScanning = true;
             videoContainer.style.display = 'block';
+            statusBar.innerText = '狀態：正在開啟相機...';
 
-            document.getElementById('statusBar').innerText = '狀態：正在請求相機權限...';
-
-            mediaStream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: { exact: 'environment' } }
-            }).catch(async (e) => {
-                logError("強制後鏡頭失敗，嘗試一般環境鏡頭: " + e.message);
-                return await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-            });
+            // 使用相容性極佳的串流設定（優先尋找後鏡頭，若無則退回預設鏡頭）
+            try {
+                mediaStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+                });
+            } catch (errEnv) {
+                console.warn("無法取得環境後鏡頭，嘗試一般相機：", errEnv);
+                mediaStream = await navigator.mediaDevices.getUserMedia({ video: true });
+            }
 
             videoElement.srcObject = mediaStream;
             await videoElement.play();
-            document.getElementById('statusBar').innerText = '狀態：相機串流中，尋找條碼...';
+            statusBar.innerText = '狀態：相機運行中，尋找條碼...';
 
             const canvas = document.createElement('canvas');
             const context = canvas.getContext('2d', { willReadFrequently: true });
 
+            // 啟動高效辨識迴圈
             scanInterval = setInterval(async () => {
                 if (isProcessing) return;
                 if (videoElement.readyState === videoElement.HAVE_ENOUGH_DATA) {
                     isProcessing = true;
                     try {
+                        // 畫布降載以提升處理速度
                         canvas.width = 640;
                         canvas.height = videoElement.videoHeight * (640 / videoElement.videoWidth);
 
-                        const roiW = videoElement.videoWidth * 0.8;
-                        const roiH = 140; 
-                        const roiX = (videoElement.videoWidth - roiW) / 2;
-                        const roiY = (videoElement.videoHeight - roiH) / 2;
-
-                        context.drawImage(videoElement, roiX, roiY, roiW, roiH, 0, 0, canvas.width, canvas.height);
+                        context.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
 
                         const symbols = await zbarWasm(canvas);
                         if (symbols && symbols.length > 0) {
                             for (let symbol of symbols) {
-                                resultArea.innerHTML = `
-                                    <div style="color: #4ade80; font-weight: bold;">🎉 成功捕捉！</div>
-                                    <div>類型：${symbol.typeName}</div>
-                                    <div>內容：<code>${symbol.decode()}</code></div>
-                                `;
-                                if (navigator.vibrate) navigator.vibrate(100);
-                                stopScanner();
-                                break;
+                                const codeText = symbol.decode();
+                                if (codeText) {
+                                    resultArea.innerHTML = `
+                                        <div style="color: #4ade80; font-weight: bold;">🎉 成功捕捉！</div>
+                                        <div>類型：${symbol.typeName}</div>
+                                        <div>內容：<code>${codeText}</code></div>
+                                    `;
+                                    if (navigator.vibrate) navigator.vibrate(100);
+                                    stopScanner();
+                                    break;
+                                }
                             }
                         }
-                    } catch (errLoop) {
-                        logError("辨識迴圈發生例外: " + errLoop.message);
+                    } catch (e) {
+                        console.error("辨識執行緒錯誤：", e);
                     }
                     isProcessing = false;
                 }
             }, 150);
 
         } catch (err) {
-            logError("啟動主程序失敗: " + err.message);
-            alert("啟動失敗，請查看畫面上方的紅色錯誤日誌：" + err.message);
+            alert("無法開啟相機：" + err.message);
             stopScanner();
         }
     }
