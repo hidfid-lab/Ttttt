@@ -3,7 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OmniPass 歐米通：條碼卡包 (修復版)</title>
+    <title>OmniPass 歐米通：相容穩定版</title>
+    <!-- 改用全域 UMD 版本的 zbar-wasm，避免 import 阻擋 -->
+    <script src="https://cdn.jsdelivr.net/npm/@undecaf/zbar-wasm@latest/dist/index.js"></script>
     <style>
         * { box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #13111c; margin: 0; padding: 16px; color: #f8fafc; }
@@ -54,7 +56,7 @@
 
     <div class="info-card">
         <div class="info-text" id="settingStatus">目前設定：通路A(7-11)．商品卡．單條碼．CODE128</div>
-        <span class="badge">zbar-wasm 點擊事件修復版</span>
+        <span class="badge">全域同步相容版</span>
     </div>
 
     <button class="main-btn" id="mainBtn">▶ 啟動掃描</button>
@@ -74,9 +76,7 @@
     </div>
 </div>
 
-<script type="module">
-    import { scanImageData } from 'https://cdn.jsdelivr.net/npm/@undecaf/zbar-wasm@latest/dist/index.js';
-
+<script>
     let currentChannel = 'A'; // A: 7-11 (CODE128), B: 全家 (CODE39)
     let currentType = 'product'; // product: 商品卡, drink: 飲品卡
     let currentMode = 'single'; // single: 單條碼, dual: 上下雙條碼
@@ -90,55 +90,57 @@
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
-    // 按鈕事件監聽繫結
-    document.getElementById('btnChannelA').addEventListener('click', () => {
-        currentChannel = 'A';
-        document.getElementById('btnChannelA').classList.add('active');
-        document.getElementById('btnChannelB').classList.remove('active');
-        updateStatus();
-    });
+    // 確保 DOM 載入完成後才繫結事件
+    document.addEventListener('DOMContentLoaded', () => {
+        document.getElementById('btnChannelA').addEventListener('click', () => {
+            currentChannel = 'A';
+            document.getElementById('btnChannelA').classList.add('active');
+            document.getElementById('btnChannelB').classList.remove('active');
+            updateStatus();
+        });
 
-    document.getElementById('btnChannelB').addEventListener('click', () => {
-        currentChannel = 'B';
-        document.getElementById('btnChannelB').classList.add('active');
-        document.getElementById('btnChannelA').classList.remove('active');
-        updateStatus();
-    });
+        document.getElementById('btnChannelB').addEventListener('click', () => {
+            currentChannel = 'B';
+            document.getElementById('btnChannelB').classList.add('active');
+            document.getElementById('btnChannelA').classList.remove('active');
+            updateStatus();
+        });
 
-    document.getElementById('btnTypeProduct').addEventListener('click', () => {
-        currentType = 'product';
-        document.getElementById('btnTypeProduct').classList.add('active');
-        document.getElementById('btnTypeDrink').classList.remove('active');
-        updateStatus();
-    });
+        document.getElementById('btnTypeProduct').addEventListener('click', () => {
+            currentType = 'product';
+            document.getElementById('btnTypeProduct').classList.add('active');
+            document.getElementById('btnTypeDrink').classList.remove('active');
+            updateStatus();
+        });
 
-    document.getElementById('btnTypeDrink').addEventListener('click', () => {
-        currentType = 'drink';
-        document.getElementById('btnTypeDrink').classList.add('active');
-        document.getElementById('btnTypeProduct').classList.remove('active');
-        updateStatus();
-    });
+        document.getElementById('btnTypeDrink').addEventListener('click', () => {
+            currentType = 'drink';
+            document.getElementById('btnTypeDrink').classList.add('active');
+            document.getElementById('btnTypeProduct').classList.remove('active');
+            updateStatus();
+        });
 
-    document.getElementById('btnModeDual').addEventListener('click', () => {
-        currentMode = 'dual';
-        document.getElementById('btnModeDual').classList.add('active');
-        document.getElementById('btnModeSingle').classList.remove('active');
-        updateStatus();
-    });
+        document.getElementById('btnModeDual').addEventListener('click', () => {
+            currentMode = 'dual';
+            document.getElementById('btnModeDual').classList.add('active');
+            document.getElementById('btnModeSingle').classList.remove('active');
+            updateStatus();
+        });
 
-    document.getElementById('btnModeSingle').addEventListener('click', () => {
-        currentMode = 'single';
-        document.getElementById('btnModeSingle').classList.add('active');
-        document.getElementById('btnModeDual').classList.remove('active');
-        updateStatus();
-    });
+        document.getElementById('btnModeSingle').addEventListener('click', () => {
+            currentMode = 'single';
+            document.getElementById('btnModeSingle').classList.add('active');
+            document.getElementById('btnModeDual').classList.remove('active');
+            updateStatus();
+        });
 
-    document.getElementById('mainBtn').addEventListener('click', () => {
-        if (!isScanning) {
-            startScanner();
-        } else {
-            stopScanner();
-        }
+        document.getElementById('mainBtn').addEventListener('click', () => {
+            if (!isScanning) {
+                startScanner();
+            } else {
+                stopScanner();
+            }
+        });
     });
 
     function updateStatus() {
@@ -195,21 +197,23 @@
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
             try {
-                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                const symbols = await scanImageData(imageData);
+                // 確保 zbarWasm 全域函式存在
+                if (typeof zbarWasm !== 'undefined') {
+                    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                    const symbols = await zbarWasm(imageData);
 
-                if (symbols && symbols.length > 0) {
-                    for (let symbol of symbols) {
-                        const codeVal = symbol.decode();
-                        const typeName = (symbol.typeName || '').toUpperCase();
+                    if (symbols && symbols.length > 0) {
+                        for (let symbol of symbols) {
+                            const codeVal = symbol.decode();
+                            const typeName = (symbol.typeName || '').toUpperCase();
 
-                        // 7-11 鎖定 CODE128，全家鎖定 CODE39
-                        const isTargetFormat = (currentChannel === 'A' && typeName.includes('128')) ||
-                                               (currentChannel === 'B' && typeName.includes('39'));
+                            const isTargetFormat = (currentChannel === 'A' && typeName.includes('128')) ||
+                                                   (currentChannel === 'B' && typeName.includes('39'));
 
-                        if (isTargetFormat && codeVal) {
-                            handleCapturedCode(codeVal, typeName);
-                            break;
+                            if (isTargetFormat && codeVal) {
+                                handleCapturedCode(codeVal, typeName);
+                                break;
+                            }
                         }
                     }
                 }
